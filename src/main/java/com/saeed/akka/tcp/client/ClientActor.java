@@ -19,29 +19,33 @@ public class ClientActor extends UntypedActor {
 
     private LoggingAdapter log = Logging.getLogger(getContext().system(), this);
 
+    private ActorRef tcpActor;
     final InetSocketAddress remote;
-    final ActorRef listener;
 
-    public static Props props(InetSocketAddress remote, ActorRef listener) {
-        return Props.create(ClientActor.class, remote, listener);
+    public static Props props(InetSocketAddress remote, ActorRef tcpActor) {
+        return Props.create(ClientActor.class, remote, tcpActor);
     }
 
-    public ClientActor(InetSocketAddress remote, ActorRef listener) {
+    public ClientActor(InetSocketAddress remote, ActorRef tcpActor) {
         this.remote = remote;
-        this.listener = listener;
+        this.tcpActor = tcpActor;
 
-        final ActorRef tcp = Tcp.get(getContext().system()).manager();
-        tcp.tell(TcpMessage.connect(remote), getSelf());
+        if (tcpActor == null) {
+            tcpActor = Tcp.get(getContext().system()).manager();
+        }
+
+        tcpActor.tell(TcpMessage.connect(remote), getSelf());
     }
 
     @Override
     public void onReceive(Object msg) throws Exception {
         if (msg instanceof CommandFailed) {
-            listener.tell("failed", getSelf());
+            log.info("In ClientActor - received message: failed");
             getContext().stop(getSelf());
 
         } else if (msg instanceof Connected) {
-            listener.tell(msg, getSelf());
+            log.info("In ClientActor - received message: connected");
+
             getSender().tell(TcpMessage.register(getSelf()), getSelf());
             getContext().become(connected(getSender()));
 
@@ -61,8 +65,7 @@ public class ClientActor extends UntypedActor {
                     // OS kernel socket buffer was full
 
                 } else if (msg instanceof Received) {
-                    log.info("In ClientActor.connected - Received message: "+((Received) msg).data().utf8String());
-                    listener.tell(((Received) msg).data(), getSelf());
+                    log.info("In ClientActor - Received message: " + ((Received) msg).data().utf8String());
 
                 } else if (msg.equals("close")) {
                     connection.tell(TcpMessage.close(), getSelf());
